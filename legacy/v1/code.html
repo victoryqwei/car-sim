@@ -1,0 +1,246 @@
+<html>
+	<head>
+		<title>Car Steering Physics</title>
+
+		<style>
+			body { margin: 0; overflow: hidden}
+			canvas {
+				border: 1px solid black;
+				display: inline-block;
+				margin: 0;
+			}
+		</style>
+	</head>
+	<body>
+		<canvas id="canvas" width="1000" height="400"></canvas>
+
+		<script src="jquery.js"></script>
+		<script src="vector.js"></script>
+		<script src="functions.js"></script>
+		<script>
+			var canvas = document.getElementById("canvas");
+			var ctx = canvas.getContext("2d");
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+
+			function rad(deg) {
+				return deg * Math.PI / 180;
+			}
+
+			function deg(rad) {
+				return rad / Math.PI * 180;
+			}
+
+			class Car {
+				constructor() {
+					this.pos = new Vector(canvas.width/2, canvas.height/2); // Position
+					this.vel = new Vector(); // Velocity
+
+					this.speed = 0;
+					this.acceleration = 0.01;
+
+					// Drag
+					this.drag = 0.9;
+					this.angularDrag = 0.9;
+
+					this.carAngle = 0; // Car body angle
+					this.steeringAngle = 0; // Steering angle
+					this.direction = new Vector(1, 0); // Direction vector (where the car is moving)
+
+					// Body
+					this.w = 100;
+					this.h = 40;
+					this.boundingBox = {
+						tl: new Vector(-this.w/2, -this.h/2),
+						br: new Vector(this.w/2, this.h/2)
+					}
+
+					// Wheels (with respect to the car position)
+					this.wheels = {};
+					this.wheels.size = this.w/4,
+					this.wheels.thickness = this.h/4,
+
+					this.wheels.back = new Vector(this.boundingBox.tl.x + this.w/15 + this.wheels.size/2, this.boundingBox.tl.y + this.h/2),
+					this.wheels.front = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.h/2 + this.wheels.thickness/2 - this.wheels.thickness/2)
+
+					this.wheels.baseline = dist(this.wheels.back, this.wheels.front);
+
+					this.backWheel = this.wheels.back.copy();
+					this.backWheel.add(this.pos);
+					this.frontWheel = this.wheels.front.copy();
+					this.frontWheel.add(this.pos);
+				}
+
+				move() {
+					// Steering
+					if (map[37] && this.steeringAngle > -0.5) {
+						this.steeringAngle -= 0.03;
+					} else if (map[39] && this.steeringAngle < 0.5) {
+						this.steeringAngle += 0.03;
+					}
+
+					let carAngle = (this.carAngle);
+					let steeringAngle = (this.steeringAngle);
+
+					// New wheel locations
+					let backWheel = this.backWheel;
+					let frontWheel = this.frontWheel;
+
+					let backWheelDelta = new Vector(this.speed * Math.cos(carAngle), this.speed * Math.sin(carAngle));
+					backWheel.add(backWheelDelta);
+
+					let r = backWheelDelta.getMag();
+					if (this.speed < 0) r = -r;
+					let B = (this.wheels.baseline - r) * Math.cos(this.steeringAngle);
+					let C = r * (2 * this.wheels.baseline - r);
+					let frontSpeed = Math.sqrt(B * B + C) - B;
+
+					let frontWheelDelta = new Vector(frontSpeed * Math.cos(carAngle + steeringAngle), frontSpeed * Math.sin(carAngle + steeringAngle));
+					frontWheel.add(frontWheelDelta);
+
+					this.velocity = new Vector((backWheel.x + frontWheel.x) / 2, (backWheel.y + frontWheel.y) / 2);
+					this.pos = this.velocity;
+
+					this.carAngle = (Math.atan2(frontWheel.y - backWheel.y, frontWheel.x - backWheel.x));
+
+					if (map[38]) {
+						this.speed = 5;
+					} else if (map[40]) {
+						this.speed = -5;
+					}
+				}
+
+				draw() {
+					ctx.save();
+					ctx.translate(this.pos.x, this.pos.y); // Translate to car vector space
+					ctx.rotate(this.carAngle);
+
+					// Draw back wheels
+					ctx.fillStyle = "black";
+					ctx.fillRect(this.boundingBox.tl.x + this.w/15, this.boundingBox.tl.y - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
+					ctx.fillRect(this.boundingBox.tl.x + this.w/15, this.boundingBox.tl.y + this.h - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
+
+					// Draw front wheels (they rotate)
+
+					ctx.save();
+					var wheelCenter = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.wheels.thickness/2 - this.wheels.thickness/2);
+					ctx.translate(wheelCenter.x, wheelCenter.y);
+					ctx.rotate(this.steeringAngle);
+
+					var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
+					ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
+					ctx.restore();
+
+					ctx.save();
+					var wheelCenter = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.h + this.wheels.thickness/2 - this.wheels.thickness/2);
+					ctx.translate(wheelCenter.x, wheelCenter.y);
+					ctx.rotate(this.steeringAngle);
+
+					var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
+					ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
+					ctx.restore();
+
+					// Draw car body
+					ctx.fillStyle = "red";
+					ctx.fillRect(this.boundingBox.tl.x, this.boundingBox.tl.y, this.w, this.h);		
+
+					// Physics Simulation
+
+					// Back wheel
+					ctx.fillStyle = "lime";
+					ctx.lineWidth = 2;
+					ctx.fillRect(this.wheels.back.x - this.wheels.size/2, this.wheels.back.y - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
+
+					// Front wheel
+					ctx.save();
+					ctx.translate(this.wheels.front.x, this.wheels.front.y);
+					ctx.rotate(this.steeringAngle);
+
+					var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
+					ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
+					ctx.restore();
+
+					// Axle
+					ctx.beginPath();
+					ctx.strokeStyle = "lime";
+					ctx.moveTo(this.wheels.back.x, this.wheels.back.y);
+					ctx.lineTo(this.wheels.front.x, this.wheels.front.y);
+					ctx.stroke();
+					ctx.closePath();
+
+					ctx.restore();
+
+					drawCircle(this.backWheel.x, this.backWheel.y, 5, 1);
+					drawCircle(this.frontWheel.x, this.frontWheel.y, 5, 1);
+				}
+			}
+
+			var car = new Car();
+
+			function update() {
+				car.move();
+			}
+
+			function draw() {
+				ctx.fillStyle = "#EAEDED";
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+				car.draw();
+			}
+
+			// Stats
+
+			var fps = 1000;
+			var now;
+			var then = Date.now();
+			var interval = 1000/fps;
+			var delta;
+
+			var fpsArray = [];
+			var averageFps = 0;
+
+			// Game loop
+
+			function loop() {
+				requestAnimationFrame(loop);
+
+				now = Date.now();
+				delta = now - then;
+
+
+				if (delta > interval) {
+				   
+					then = now - (delta % interval);
+
+					ctx.clearRect(0, 0, canvas.width, canvas.height);
+					update();
+					draw();
+
+					fpsArray.push(1000/delta);
+					if (fpsArray.length > 30) {
+						fpsArray.shift();
+					}
+
+					averageFps = fpsArray.reduce((a, b) => a + b, 0)/fpsArray.length;
+					ctx.beginPath();
+					ctx.font = "20px Arial";
+					ctx.fillStyle = "red";
+					ctx.fillText("FPS: " + Math.floor(averageFps), canvas.width - 175, 50);
+					ctx.closePath();
+				}
+			}
+			loop();
+
+		    var map = {};
+			onkeydown = onkeyup = function(e){
+			    e = e || event; 
+			    map[e.keyCode] = e.type == 'keydown';
+			}
+
+			$(window).resize(function () {
+				canvas.width = window.innerWidth;
+				canvas.height = window.innerHeight;
+			})
+		</script>
+	</body>
+</html>

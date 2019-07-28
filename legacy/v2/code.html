@@ -1,0 +1,481 @@
+<html>
+	<head>
+		<title>Car Steering Physics</title>
+
+		<style>
+			body { margin: 0; overflow: hidden}
+			canvas {
+				border: 1px solid black;
+				display: inline-block;
+				margin: 0;
+			}
+		</style>
+	</head>
+	<body>
+		<canvas id="canvas" width="1000" height="400"></canvas>
+
+		<script src="jquery.js"></script>
+		<script src="vector.js"></script>
+		<script src="functions.js"></script>
+		<script>
+			var canvas = document.getElementById("canvas");
+			var ctx = canvas.getContext("2d");
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+
+			function rad(deg) {
+				return deg * Math.PI / 180;
+			}
+
+			function deg(rad) {
+				return rad / Math.PI * 180;
+			}
+
+			class Car {
+				constructor() {
+					this.pos = new Vector(100, canvas.height/2); // Position
+					this.velocity = new Vector(); // Velocity
+					this.acceleration = new Vector(); // Acceleration
+
+					this.latVelocity = new Vector();
+					this.latAcceleration = new Vector();
+
+					this.gear = 1; // -1 reverse, 0 neutral
+
+					this.mass = 1000 // Kilograms
+
+					this.speed = 0;
+
+					// Forces
+					this.engineForce = 0;
+					this.brakingForce = 0;
+					this.corneringForce = 0;
+
+					this.centripetalForce = 0;
+
+					// Magic Constants
+					this.drag = 0.4257; // Air resistance
+					this.rrDrag = 12.8; // Rolling resistance
+
+					// Orientation
+					this.angularVelocity = 0;
+					this.carAngle = 0; // Car body angle
+					this.steeringAngle = 0; // Steering angle
+					this.direction = new Vector(1, 0); // Direction vector (where the car is moving)
+
+					this.sideslipAngle = 0;
+
+					// Body
+					this.w = 100;
+					this.h = 40;
+					this.boundingBox = {
+						tl: new Vector(-this.w/2, -this.h/2),
+						br: new Vector(this.w/2, this.h/2)
+					}
+
+					// Wheels (with respect to the car position)
+					this.wheels = {};
+					this.wheels.size = this.w/4,
+					this.wheels.thickness = this.h/4,
+
+					this.wheels.back = new Vector(this.boundingBox.tl.x + this.w/15 + this.wheels.size/2, this.boundingBox.tl.y + this.h/2),
+					this.wheels.back.slipAngle = 0;
+					this.wheels.back.lateralForce = 0;
+					this.wheels.front = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.h/2 + this.wheels.thickness/2 - this.wheels.thickness/2)
+					this.wheels.front.slipAngle = 0;
+					this.wheels.front.lateralForce = 0;
+
+					this.wheels.baseline = dist(this.wheels.back, this.wheels.front);
+
+					this.wheels.particles = []; // Particles for drifting
+				}
+
+				getInput() {
+					// Calculate user input to forces
+
+					if (map[38]) {
+						this.engineForce = 2000;
+						this.brakingForce = 0;
+					} else if (map[40]) {
+						if (this.speed > 1) // Only apply braking force if speed is noticeable
+							this.brakingForce = 1000;
+						else {
+							// Otherwise stop the car
+							this.velocity = new Vector();
+							this.brakingForce = 0;
+						}
+						this.engineForce = 0;
+					} else {
+						this.engineForce = 0;
+						this.brakingForce = 0;
+					}
+				}
+
+				calculateSteering() {
+					// Steering
+
+					if (map[37] && this.steeringAngle > -0.5) {
+						this.steeringAngle -= 0.02;
+					} else if (map[39] && this.steeringAngle < 0.5) {
+						this.steeringAngle += 0.02;
+					} else if (this.steeringAngle < -0.02) {
+						this.steeringAngle += 0.02;
+					} else if (this.steeringAngle > 0.02) {
+						this.steeringAngle -= 0.02;
+					} else {
+						this.steeringAngle = 0;
+					}
+
+					// Calculate car rotation
+
+					let radius = this.wheels.baseline/Math.sin(this.steeringAngle);
+					this.angularVelocity = this.velocity.getMag()/radius;
+
+					this.carAngle += this.angularVelocity*dt;
+
+				}
+
+				applyPhysics() {
+					// Get car direction vector
+
+					let direction = new Vector(1, 0);
+					direction = Vector.rotate(direction, this.carAngle);
+
+					// LONGITUDINAL FORCES
+
+					// Traction forces
+					let tractionForce = direction.copy(); // Traction force (engine power)
+					if (this.engineForce) {
+						tractionForce.mult(this.engineForce);
+					}
+					else if (this.brakingForce) {
+						tractionForce.mult(-this.brakingForce);
+					}
+
+					// Frictional forces
+
+					let dragForce = this.velocity.copy(); // Air resistance force
+					dragForce.mult(this.velocity.getMag())
+					dragForce.mult(-this.drag);
+
+					let rollingResistanceForce = this.velocity.copy(); // Rolling resistance force (friction with ground)
+					rollingResistanceForce.mult(-this.rrDrag);
+
+					let netLongitudinalForce = tractionForce.copy(); // Total longitudinal force
+					netLongitudinalForce.add(dragForce)
+					netLongitudinalForce.add(rollingResistanceForce);
+
+					// Calculate acceleration
+					this.acceleration = netLongitudinalForce.copy();
+					this.acceleration.div(this.mass);
+					if (this.acceleration.getMag() < 0.001)
+						this.acceleration = new Vector();
+
+					// Calculate velocity
+					let accelerationDelta = this.acceleration.copy();
+					accelerationDelta.mult(dt);
+					this.velocity.add(accelerationDelta);
+
+					this.velDir = this.velocity.getDir();
+					this.sideslipAngle = (this.carAngle - this.velDir) % (2*Math.PI); // Calculate side slip angle
+
+					if (this.speed > 20) { // High speed-turning
+						// LATERAL FORCES
+
+						let peakSlipAngle = 5;
+
+						// Calculate slip angle for back wheel
+						var c = this.wheels.baseline/2;
+						var omegaC = this.angularVelocity*c;
+						var longV = Math.cos(this.carAngle) * this.velocity.getMag();
+						var latV = Math.sin(this.carAngle) * this.velocity.getMag();
+						this.wheels.back.slipAngle = Math.atan(((latV - omegaC)/Math.abs(longV)) || 0);
+						var backSlipDeg = deg(this.wheels.back.slipAngle)
+
+						this.wheels.back.lateralForce = 5000*Math.sign(this.wheels.back.slipAngle);
+						if (backSlipDeg < peakSlipAngle && backSlipDeg > -peakSlipAngle) {
+							this.wheels.back.lateralForce = 5000*backSlipDeg/peakSlipAngle;
+						} else {
+							this.wheels.back.lateralForce = 5000*(1-((Math.abs(backSlipDeg)-peakSlipAngle)/500))*Math.sign(this.wheels.back.slipAngle);
+						}
+
+						// Calculate slip angle for front wheel
+						var b = this.wheels.baseline/2;
+						var omegaB = this.angularVelocity*b;
+						var longV = Math.cos(this.wheels.front.slipAngle) * this.velocity.getMag();
+						var latV = Math.sin(this.wheels.front.slipAngle) * this.velocity.getMag();
+						this.wheels.front.slipAngle = Math.atan((((latV - omegaB)/Math.abs(longV)) || 0)-this.steeringAngle*Math.sign(longV));
+						var frontSlipDeg = deg(this.wheels.front.slipAngle);
+
+						this.wheels.front.lateralForce = 5000*Math.sign(this.wheels.front.slipAngle);
+						if (frontSlipDeg < peakSlipAngle && frontSlipDeg > -peakSlipAngle) {
+							this.wheels.front.lateralForce = 5000*frontSlipDeg/peakSlipAngle;
+						} else {
+							this.wheels.front.lateralForce = 5000*(1-((Math.abs(frontSlipDeg)-peakSlipAngle)/500))*Math.sign(this.wheels.front.slipAngle);
+						}
+
+						// Calculate cornering force
+						this.corneringForce = this.wheels.back.lateralForce + Math.cos(this.steeringAngle) * this.wheels.front.lateralForce;
+
+						// Calculate centripetal force
+						this.centripetalForce = this.mass * (this.velocity.getMag() ** 2) / (this.wheels.baseline/Math.sin(this.steeringAngle));
+
+						let netLateralForce = this.centripetalForce - this.corneringForce;
+
+						var lateralDirection = new Vector(0, 1);
+						lateralDirection = Vector.rotate(lateralDirection, this.carAngle);
+
+						let lateralForce = lateralDirection.copy();
+						lateralForce.mult(netLateralForce);
+
+						this.latAcceleration = lateralForce.copy();
+						this.latAcceleration.div(this.mass);
+						if (this.latAcceleration.getMag() < 0.001)
+							this.latAcceleration = new Vector();
+
+						let latAccelerationDelta = this.latAcceleration.copy();
+						latAccelerationDelta.mult(dt);
+						this.latVelocity.add(latAccelerationDelta);
+
+						// Calculate position
+						let latVelocityDelta = this.latVelocity.copy();
+						latVelocityDelta.mult(dt);
+						this.pos.add(latVelocityDelta);
+					} else {
+						this.velocity = Vector.rotate(this.velocity, this.carAngle - this.velDir); // Correct velocity based on car orientation
+					}
+
+					// Calculate position
+					let velocityDelta = this.velocity.copy();
+					velocityDelta.mult(dt);
+					this.pos.add(velocityDelta);
+
+					// Calculate speed
+					this.speed = this.velocity.getMag();
+				}
+
+				collisionDetection() {
+					// Out of bounds
+
+					if (this.pos.x > canvas.width + this.w/2) {
+						this.pos.x = -this.w/2;
+					} else if (this.pos.x < -this.w/2) {
+						this.pos.x = canvas.width + this.w/2;
+					} else if (this.pos.y > canvas.height + this.h) {
+						this.pos.y = -this.h;
+					} else if (this.pos.y < -this.h) {
+						this.pos.y = canvas.height + this.h;
+					}
+				}
+
+				move() {
+					
+					this.getInput();
+					this.calculateSteering();
+					this.applyPhysics();
+					this.collisionDetection();
+					
+				}
+
+				addParticles() {
+					let particles = this.wheels.particles;
+					particles.push(this.pos.copy());
+
+					if (particles.length > 200) {
+						particles.shift();
+					}
+				}
+
+				drawParticles() {
+					// DRAW PARTICLES
+
+					let particles = this.wheels.particles;
+
+					let lastP = new Vector(-1, -1);
+					for (var i = 0; i < particles.length; i++) {
+						var p = particles[i];
+
+						var inArena = lastP.x > 0 && lastP.y > 0 && lastP.x < canvas.width && lastP.y < canvas.height && p.x > 0 && p.y > 0 && p.x < canvas.width && p.y < canvas.height;
+						if (inArena) {
+							drawLine(lastP.x, lastP.y, p.x, p.y, 5, "black", i/particles.length, "round");
+						}
+
+						lastP = p;
+					}
+				}
+
+				drawCar() {
+					// DRAW CAR
+
+					ctx.save();
+					ctx.translate(this.pos.x, this.pos.y); // Translate to car vector space
+					ctx.rotate(this.carAngle);
+
+					// Draw back wheels
+					ctx.fillStyle = "black";
+					ctx.fillRect(this.boundingBox.tl.x + this.w/15, this.boundingBox.tl.y - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
+					ctx.fillRect(this.boundingBox.tl.x + this.w/15, this.boundingBox.tl.y + this.h - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
+
+					// Draw front wheels (they rotate)
+
+					ctx.save();
+						var wheelCenter = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.wheels.thickness/2 - this.wheels.thickness/2);
+						ctx.translate(wheelCenter.x, wheelCenter.y);
+						ctx.rotate(this.steeringAngle);
+
+						var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
+						ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
+					ctx.restore();
+
+					ctx.save();
+						var wheelCenter = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.h + this.wheels.thickness/2 - this.wheels.thickness/2);
+						ctx.translate(wheelCenter.x, wheelCenter.y);
+						ctx.rotate(this.steeringAngle);
+
+						var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
+						ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
+					ctx.restore();
+
+					// Draw car body
+					ctx.fillStyle = "red";
+					ctx.fillRect(this.boundingBox.tl.x, this.boundingBox.tl.y, this.w, this.h);		
+				}
+
+				drawPhysics() {
+					// Physics Simulation Display
+					// Back wheel
+					ctx.fillStyle = "lime";
+					ctx.lineWidth = 2;
+					ctx.fillRect(this.wheels.back.x - this.wheels.size/2, this.wheels.back.y - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
+
+					// Front wheel
+					ctx.save();
+					ctx.translate(this.wheels.front.x, this.wheels.front.y);
+					ctx.rotate(this.steeringAngle);
+
+					var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
+					ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
+					ctx.restore();
+
+					// Axle
+					drawLine(this.wheels.back.x, this.wheels.back.y, this.wheels.front.x, this.wheels.front.y, 2, "lime");
+
+					// Car position
+
+					drawCircle(0, 0, 5, 1, "black");
+
+					ctx.restore(); // RESTORE BACK TO WORLD SPACE
+					ctx.save();
+					ctx.translate(this.pos.x, this.pos.y);
+
+					// Draw velocity
+
+					let v = this.velocity.copy()
+					v.mult(2);
+					drawArrow(0, 0, v.x, v.y);
+
+					ctx.restore();
+				}
+
+				draw() {
+					this.drawParticles();
+
+					this.drawCar();
+
+					this.drawPhysics();
+				}
+
+			}
+
+			var car = new Car();
+
+			function update() {
+				car.move();
+				car.addParticles();
+			}
+
+			function draw() {
+				ctx.fillStyle = "#EAEDED";
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+				car.draw();
+
+				// Add statistics
+				addStat("FPS", 1000/delta, 0, 1, fpsArray);
+				addStat("Speed", car.speed, 1, 1, speedArray);
+				addStat("Engine Force", car.engineForce, 2);
+				addStat("X", car.pos.x, 3);
+				addStat("Y", car.pos.y, 4);
+				addStat("Steer Angle", deg(car.steeringAngle), 5);
+				addStat("Car Angle", deg(car.carAngle), 6);
+				addStat("Side slip", deg(car.sideslipAngle)%360, 7);
+				addStat("Angular Vel", car.angularVelocity, 8, 3);
+				addStat("Back angle", deg(car.wheels.back.slipAngle), 9);
+				addStat("Back force", car.wheels.back.lateralForce, 10);
+				addStat("Front angle", deg(car.wheels.front.slipAngle), 11);
+				addStat("Front force", car.wheels.front.lateralForce, 12);
+				addStat("Cornering force", car.corneringForce, 13);
+				addStat("Centripetal force", car.centripetalForce, 14);
+			}
+
+			// Stats to track
+			function addStat(name, value, place, decimalPlace, averageArray, maxCount) {
+				let displayValue = value;
+				if (averageArray) {
+					averageArray.push(value);
+					if (averageArray.length > (maxCount || 30))
+						averageArray.shift();
+					displayValue = averageArray.reduce((a, b) => a + b, 0)/averageArray.length;
+				}
+
+				ctx.beginPath();
+				ctx.font = "20px Arial";
+				ctx.fillStyle = "red";
+				ctx.fillText(name + ": " + round(displayValue, decimalPlace), canvas.width - 250, 50 + 25*place);
+				ctx.closePath();
+			}
+
+			// Stats
+
+			var fps = 1000;
+			var now;
+			var then = Date.now();
+			var interval = 1000/fps;
+			var delta, dt;
+
+			var fpsArray, speedArray;
+			fpsArray = [];
+			speedArray = [];
+
+			// Game loop
+
+			function loop() {
+				requestAnimationFrame(loop);
+
+				now = Date.now();
+				delta = now - then;
+				dt = delta/100;
+
+				if (delta > interval) {
+					then = now - (delta % interval);
+
+					ctx.clearRect(0, 0, canvas.width, canvas.height);
+					update();
+					draw();
+				}
+			}
+			loop();
+
+		    var map = {};
+			onkeydown = onkeyup = function(e){
+			    e = e || event; 
+			    map[e.keyCode] = e.type == 'keydown';
+			}
+
+			$(window).resize(function () {
+				canvas.width = window.innerWidth;
+				canvas.height = window.innerHeight;
+			})
+		</script>
+	</body>
+</html>

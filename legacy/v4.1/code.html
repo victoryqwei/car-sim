@@ -1,0 +1,253 @@
+<html>
+	<head>
+		<title>Car Steering Physics</title>
+
+		<style>
+			body { margin: 0; overflow: hidden}
+			canvas {
+				border: 1px solid black;
+				display: inline-block;
+				margin: 0;
+			}
+		</style>
+
+		<link rel="stylesheet" type="text/css" href="style.css">
+	</head>
+	<body>
+
+		<img src="settings.png" id="settings-image">
+
+		<div id="settings">
+			<div class="slidecontainer" style="position: relative; margin-right:auto; margin-left: auto; float: center; width: 100%; height: 50%; background-color: rgba(0, 0, 0, 0.3); padding-top: 1%">
+				<p style="font-size: 30px;text-align: center;">Settings</p>
+
+				<div style="float: left; padding-left: 5%; width: 40%; display: inline-block;">
+					<input type="range" min="0" max="1" value="0" class="slider" id="statsSlider">
+					<span>Show Statistics</span>
+					<br />
+					<input type="range" min="0" max="1" value="1" class="slider" id="instructionsSlider">
+					<span>Show Instructions</span>
+					<br />
+					<input type="range" min="0" max="1" value="0" class="slider" id="controlsSlider">
+					<span id="controlsText">Controls: Keyboard</span>
+					
+				</div>
+			</div>
+		</div>
+
+		<canvas id="canvas" width="1000" height="400"></canvas>
+
+		<script src="jquery.js"></script>
+		<script src="vector.js"></script>
+		<script src="helper.js"></script>
+		<script src="car.js"></script>
+		<script>
+			var canvas = document.getElementById("canvas");
+			var ctx = canvas.getContext("2d");
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+
+			// Settings
+			var showMenu = true;
+			var showSettings = false;
+			var showStats = false;
+			var showInstructions = true;
+			var scale = 25; // (scale) px = 1 meter
+			var useMouse = false;
+			var smoothSteer = true;
+			
+
+			var car = new Car();
+
+			function drawStats() {
+				// Add statistics
+				statsCounter = 0;
+				addStat("FPS", 1000/delta, 1, fpsArray);
+				addStat("Throttle", car.throttle, 2);
+				addStat("Brake", car.brake, 2);
+				addStat("Speed", car.speed, 1, speedArray);
+				addStat("X", car.pos.x);
+				addStat("Y", car.pos.y);
+				addStat("Steer Angle", deg(car.steeringAngle));
+				addStat("Car Angle", deg(car.carAngle)%360);
+				addStat("Yaw rate", car.yawRate, 3);
+				addStat("Sideslip", car.sideslipAngle, 2);
+				addStat("Cornering Force", car.corneringForce);
+			}
+
+			function drawControls() {
+				var ctrl = car.controls;
+				if (useMouse) {
+
+					drawText("Full Throttle", ctrl.padding, ctrl.fullPosition-ctrl.padding, "15px Arial", "black", "left", "bottom");
+					drawLine(0, ctrl.fullPosition, 100, ctrl.fullPosition, 3, "black", 0.2);
+
+					drawText("Throttle", ctrl.padding, ctrl.idlePosition-ctrl.padding, "15px Arial", "black", "left", "bottom");
+					drawLine(0, ctrl.idlePosition, 100, ctrl.idlePosition, 3, "black", 0.2);
+
+					drawText("Idle", ctrl.padding, ctrl.idlePosition+(ctrl.brakePosition-ctrl.idlePosition)/2, "15px Arial", "black", "left", "middle");
+
+					drawLine(0, ctrl.brakePosition, 100, ctrl.brakePosition, 3, "black", 0.2);
+					drawText("Brake", ctrl.padding, ctrl.brakePosition+ctrl.padding, "15px Arial", "black", "left", "top");
+
+					drawLine(0, canvas.height-ctrl.fullPosition, 100, canvas.height-ctrl.fullPosition, 3, "black", 0.2);
+					drawText("Full Brake", ctrl.padding, canvas.height-ctrl.fullPosition+ctrl.padding, "15px Arial", "black", "left", "top");
+
+					drawLine(ctrl.steerLeftPosition, 0, ctrl.steerLeftPosition, 50, 3, "black", 0.2);
+					drawText("Steer Left", ctrl.steerLeftPosition-ctrl.padding, ctrl.padding, "15px Arial", "black", "right", "top");
+					drawLine(ctrl.steerRightPosition, 0, ctrl.steerRightPosition, 50, 3, "black", 0.2);
+					drawText("Steer Right", ctrl.steerRightPosition+ctrl.padding, ctrl.padding, "15px Arial", "black", "left", "top");
+
+					drawText("Right Mouse Button - emergency brake", canvas.width/2, canvas.height-25, "", "black", "center", "top");
+				} else {
+					drawText("W / Up - accelerate, S / Down - brake, A / D / Left / Right - steer, Space - emergency brake", canvas.width/2, canvas.height-25, "", "black", "center", "top");
+				}
+			}
+
+			function drawMenu() {
+				drawText("Car Simulator", canvas.width/2, canvas.height/2, canvas.height/8 + "px Arial", "black", "center", "bottom");
+				drawText("Developed by Victor Wei", canvas.width/2, canvas.height/2, canvas.height/32+"px Arial", "black", "center", "top");
+
+				if (car.speed > 20)
+					showMenu = false;
+			}
+
+			function update() {
+				car.move();
+				car.addParticles();
+			}
+
+			function draw() {
+				ctx.fillStyle = "#EAEDED";
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+				car.draw();
+
+				if (showMenu)
+					drawMenu();
+
+				if (showStats)
+					drawStats();
+
+				if (showInstructions)
+					drawControls();
+			}
+
+			// Stats to track
+			var statsCounter = 0;
+			function addStat(name, value, decimalPlace, averageArray, maxCount) {
+				let displayValue = value;
+				if (averageArray) {
+					averageArray.push(value);
+					if (averageArray.length > (maxCount || 30))
+						averageArray.shift();
+					displayValue = averageArray.reduce((a, b) => a + b, 0)/averageArray.length;
+				}
+
+				drawText(name + ": " + round(displayValue, decimalPlace), canvas.width-10, 10 + 25*statsCounter, "", "", "right", "top")
+
+				statsCounter += 1;
+			}
+
+			// Stats
+
+			var fps = 1000;
+			var now;
+			var then = Date.now();
+			var interval = 1000/fps;
+			var delta, dt;
+
+			var fpsArray, speedArray;
+			fpsArray = [];
+			speedArray = [];
+
+			// Game loop
+
+			function loop() {
+				requestAnimationFrame(loop);
+
+				now = Date.now();
+				delta = now - then;
+				dt = delta/1000;
+
+				if (delta > interval) {
+					then = now - (delta % interval);
+
+					ctx.clearRect(0, 0, canvas.width, canvas.height);
+					update();
+					draw();
+				}
+			}
+			loop();
+
+		    var map = {};
+			onkeydown = onkeyup = function(e){
+			    e = e || event; 
+			    map[e.keyCode] = e.type == 'keydown';
+			}
+
+			var mouse = new Vector();
+			$("#canvas").on("mousemove", function (e) {
+				mouse.x = e.offsetX;
+				mouse.y = e.offsetY;
+			})
+
+			$("#canvas").on('mousedown', function (e) {
+				if (e.which == 1) {
+					mouse.left = true;
+				} else if (e.which == 2) {
+					mouse.middle = true;
+				} else if (e.which == 3) {
+					mouse.right = true;
+				}
+				e.preventDefault();
+			}).on('mouseup', function (e) {
+				if (e.which == 1) {
+					mouse.left = false;
+				} else if (e.which == 2) {
+					mouse.middle = false;
+				} else if (e.which == 3) {
+					mouse.right = false;
+				}
+				e.preventDefault();
+			})
+
+			$("#settings-image").click(function () {
+				showSettings = !showSettings;
+
+				if (showSettings) {
+					$("#settings").show();
+				} else {
+					$("#settings").hide();
+				}
+			})
+
+			$("#statsSlider").change(function () {
+				showStats = !showStats;
+			})
+
+			$("#instructionsSlider").change(function () {
+				showInstructions = !showInstructions;
+			})
+
+			$("#controlsSlider").change(function () {
+				useMouse = !useMouse;
+
+				if (useMouse) {
+					$("#controlsText").text("Controls: Mouse");
+				} else {
+					$("#controlsText").text("Controls: Keyboard");
+				}
+			})
+
+			window.oncontextmenu = function () {
+				return false;
+			}
+
+			$(window).resize(function () {
+				canvas.width = window.innerWidth;
+				canvas.height = window.innerHeight;
+			})
+		</script>
+	</body>
+</html>
