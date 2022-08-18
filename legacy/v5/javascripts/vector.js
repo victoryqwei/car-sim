@@ -70,7 +70,7 @@ class Vector {
 	copy() {
 		return new Vector(this.x, this.y);
 	}
-	rotate(ang) // Vector to rotate by an angle in degrees
+	rotate(ang)
 	{
 	    ang = ang * (Math.PI/180);
 	    var cos = Math.cos(ang);

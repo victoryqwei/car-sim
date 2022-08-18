@@ -1,12 +1,10 @@
-class Car {
+class Box {
 	constructor(x, y) {
-		// State of Car
-
 		this.id = randomString(5)
 
 		this.previousCarAngle = 0;
 		this.carAngle = 0; // Car body angle (radians)
-		this.pos = new Vector(x || 100, y || canvas.height/2+40); // Position
+		this.pos = new Vector(x || 100, y || canvas.height/2); // Position
 		this.previousPosition = this.pos.copy();
 		this.velocity = new Vector(); // Velocity
 		this.localVelocity = new Vector();
@@ -17,20 +15,7 @@ class Car {
 		this.yawRate = 0; // Angular velocity
 		this.steeringAngle = 0; // Steering angle
 
-		// User inputs
-
-		this.steer = 0;
-		this.throttle = 0;
-		this.brake = 0;
-		this.eBrake = 0;
-
-		this.gear = 1; // -1 reverse, 0 neutral
-
-		this.corneringForce = 0;
-		this.sideslipAngle = 0;
-
 		this.setConfig(); // Car configuration
-		this.setControls(); // User controls
 	}
 
 	setConfig(cfg) {
@@ -54,9 +39,7 @@ class Car {
 		this.h = this.halfWidth*2*scale;
 		this.boundingBox = {
 			tl: new Vector(-this.w/2, -this.h/2),
-			tr: new Vector(this.w/2, -this.h/2),
-			br: new Vector(this.w/2, this.h/2),
-			bl: new Vector(-this.w/2, this.h/2)
+			br: new Vector(this.w/2, this.h/2)
 		}
 
 		// Wheels (with respect to the car position)
@@ -67,6 +50,7 @@ class Car {
 		this.wheels.back = new Vector(this.boundingBox.tl.x + this.w/15 + this.wheels.size/2, this.boundingBox.tl.y + this.h/2),
 		this.wheels.back.slipAngle = 0;
 		this.wheels.front = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.h/2 + this.wheels.thickness/2 - this.wheels.thickness/2)
+		this.wheels.front.slipAngle = 0;
 
 		this.wheels.baseline = dist(this.wheels.back, this.wheels.front);
 
@@ -84,39 +68,6 @@ class Car {
 
 		this.drag = 2.5; // Air resistance
 		this.rrDrag = 12.0; // Rolling resistance
-	}
-
-	setControls(opts) {
-		this.controls = {};
-		this.controls.fullPosition = 100;
-		this.controls.idlePosition = canvas.height*2/3;
-		this.controls.brakePosition = this.controls.idlePosition + 100;
-
-		this.controls.steerLeftPosition = canvas.width/2-50;
-		this.controls.steerRightPosition = canvas.width/2+50;
-
-		this.controls.padding = 10;
-	}
-
-	updateScale(scale) {
-		this.w = (this.cgToFront + this.cgToRear)*scale;
-		this.h = this.halfWidth*2*scale;
-		this.boundingBox = {
-			tl: new Vector(-this.w/2, -this.h/2),
-			br: new Vector(this.w/2, this.h/2)
-		}
-
-		// Wheels (with respect to the car position)
-		this.wheels = {};
-		this.wheels.size = this.w/4,
-		this.wheels.thickness = this.h/4,
-
-		this.wheels.back = new Vector(this.boundingBox.tl.x + this.w/15 + this.wheels.size/2, this.boundingBox.tl.y + this.h/2)
-		this.wheels.front = new Vector(this.boundingBox.tl.x + this.w - this.wheels.size/2 - this.w/15, this.boundingBox.tl.y + this.h/2 + this.wheels.thickness/2 - this.wheels.thickness/2)
-
-		this.wheels.baseline = dist(this.wheels.back, this.wheels.front);
-
-		this.wheels.particles = [];
 	}
 
 	getBoundingBox(object) {
@@ -144,85 +95,6 @@ class Car {
 		}
 	}
 
-
-
-	getInput(n) {
-		// Convert user input to car actions
-
-		var ctrl = this.controls;
-
-		if (useMouse) {
-			if (mouse.y < ctrl.idlePosition) {
-				this.throttle = Math.min(1-(mouse.y-ctrl.fullPosition)/(ctrl.idlePosition-ctrl.fullPosition), 1);
-				this.brake = 0;
-			} else if (mouse.y >= ctrl.idlePosition && mouse.y <= ctrl.brakePosition) {
-				this.throttle = 0;
-				this.brake = 0;
-			} else if (mouse.y > ctrl.brakePosition) {
-				this.throttle = 0;
-				this.brake = Math.min((mouse.y-ctrl.brakePosition)/(canvas.height-ctrl.brakePosition-ctrl.fullPosition), 1);
-			}
-
-			if (mouse.right)
-				this.eBrake = 1;
-			else
-				this.eBrake = 0;
-		} else {
-			if ((n == 1 && map[38]) || (n == 0 && map[87])) {
-				this.throttle = 1;
-			} else {
-				this.throttle = 0;
-			}
-
-			if ((n == 1 && map[40]) || (n == 0 && map[83])) {
-				this.brake = 1;
-			} else {
-				this.brake = 0;
-			}
-
-			if ((n == 0 && map[32]) || (n == 1 && map[18])) {
-				this.eBrake = 1;
-			} else {
-				this.eBrake = 0;
-			}
-		}
-		
-	}
-
-	calculateSteering(n) {
-		// Steering
-
-		var ctrl = this.controls;
-
-		if (useMouse) {
-			if (mouse.x < ctrl.steerLeftPosition)
-				this.steeringAngle = -(1-mouse.x/ctrl.steerLeftPosition)*this.maxSteer;
-			else if (mouse.x >= ctrl.steerLeftPosition && mouse.x < ctrl.steerRightPosition)
-				this.steeringAngle = 0;
-			else if (mouse.x > ctrl.steerRightPosition)
-				this.steeringAngle = ((mouse.x-ctrl.steerRightPosition)/ctrl.steerLeftPosition)*this.maxSteer;
-		} else if (smoothSteer) {
-			if (((n == 1 && map[37]) || (n == 0 && map[65])) && this.steeringAngle > -0.5) {
-				this.steeringAngle -= 0.02;
-			} else if (((n == 1 && map[39]) || (n == 0 && map[68])) && this.steeringAngle < 0.5) {
-				this.steeringAngle += 0.02;
-			} else if (this.steeringAngle < -0.02) {
-				this.steeringAngle += 0.02;
-			} else if (this.steeringAngle > 0.02) {
-				this.steeringAngle -= 0.02;
-			} else {
-				this.steeringAngle = 0;
-			}
-		} else {
-			if (map[37])
-				this.steeringAngle = -this.maxSteer;
-			else if (map[39])
-				this.steeringAngle = this.maxSteer;
-			else
-				this.steeringAngle = 0;
-		}
-	}
-
 	applyPhysics() {
 		// Set previous car position
 		this.previousPosition = this.pos.copy();
@@ -244,37 +116,26 @@ class Car {
 		this.sideslipAngle = (this.carAngle%rad(360) - this.velocity.getDir())%rad(360);
 
 		// Calculate slip angle for front/back wheel
-		let steeringAngle = this.color == "red" ? this.steeringAngle/3 : this.steeringAngle;
-		this.wheels.front.slipAngle = Math.atan2(this.localVelocity.y + yawSpeedFront, Math.abs(this.localVelocity.x)) - Math.sign(this.localVelocity.x) * steeringAngle;
-		this.wheels.back.slipAngle = Math.atan2(this.localVelocity.	y + yawSpeedRear,  Math.abs(this.localVelocity.x));
-		//console.log(this.wheels.front.slipAngle, this.wheels.back.slipAngle);
+		this.wheels.front.slipAngle = Math.atan2(this.localVelocity.y + yawSpeedFront, Math.abs(this.localVelocity.x)) - Math.sign(this.localVelocity.x) * this.steeringAngle;
+		this.wheels.back.slipAngle = Math.atan2(this.localVelocity.y + yawSpeedRear,  Math.abs(this.localVelocity.x));
 		
 		var tireGripFront = this.tireGrip;
-		var tireGripRear = this.tireGrip * (1.0 - this.eBrake * (1.0 - this.lockGrip)); // reduce rear grip when ebrake is on
+		var tireGripRear = this.tireGrip * (1.0 * (1.0 - this.lockGrip)); // reduce rear grip when ebrake is on
 
 		var frictionForceFront = Math.clamp(-this.cornerStiffnessFront * this.wheels.front.slipAngle, -tireGripFront, tireGripFront) * axleWeightFront;
 		var frictionForceRear = Math.clamp(-this.cornerStiffnessRear * this.wheels.back.slipAngle, -tireGripRear, tireGripRear) * axleWeightRear;
-
-		//console.log(frictionForceFront, frictionForceRear);
-
-		// Brake and throttle forces
-		var throttle = this.throttle * this.engineForce;
-		var brake = Math.min(this.brake * this.brakeForce + this.eBrake * this.eBrakeForce, this.brakeForce);
-
-		// Traction force
-		let tractionForce = new Vector(throttle - brake * Math.sign(this.localVelocity.x), 0);
 
 		// Frictional forces
 		let dragForce = new Vector(this.localVelocity.x * Math.abs(this.localVelocity.x) * -this.drag, this.localVelocity.y * Math.abs(this.localVelocity.y) * -this.drag); // Air resistance force
 		let rollingResistanceForce = new Vector(this.localVelocity.x * -this.rrDrag, this.localVelocity.y * -this.rrDrag); // Rolling resistance force (friction with ground)
 
 		 // Total force applied on car
-		let netForce = tractionForce.copy();
+		let netForce = new Vector();
 		netForce.add(dragForce);
 		netForce.add(rollingResistanceForce);
 
 		// Add cornering force as well
-		this.corneringForce = Math.cos(steeringAngle) * frictionForceFront + frictionForceRear;
+		this.corneringForce = Math.cos(this.steeringAngle) * frictionForceFront + frictionForceRear;
 		netForce.y += this.corneringForce;
 
 		// Compute acceleration
@@ -294,19 +155,21 @@ class Car {
 		this.speed = this.velocity.getMag() * 3600 / 1000; // Calculate speed in KM/hr
 
 		// Calculate amount of rotational force
-		let angularTorque = (frictionForceFront + tractionForce.y) * this.cgToFrontAxle - frictionForceRear * this.cgToRearAxle; 
+		let angularTorque = (frictionForceFront) * this.cgToFrontAxle - frictionForceRear * this.cgToRearAxle; 
+
+		this.absVelocity = this.velocity.getMag(); // Get speed of velocity in metres per second
 
 		// Stop car if speed is negligible
-		if (this.absVelocity < delta/160) {
+		/*if (this.absVelocity < 0.1) {
 			this.velocity = new Vector();
 			this.absVelocity = 0;
 			angularTorque = 0;
-		}
+		}*/
 
 		// Calculate car angle from angular torque
-		this.inertia = this.mass/12*(Math.pow(this.cgToFront + this.cgToRear, 2) + Math.pow(this.halfWidth*2, 2));
+		this.inertia = 1/12*this.mass*(Math.pow(this.cgToFront + this.cgToRear, 2) + Math.pow(this.halfWidth*2, 2));
 
-		let angularAcceleration = angularTorque / this.inertia;
+		let angularAcceleration = angularTorque / this.mass;
 		this.yawRate += angularAcceleration * dt;
 		this.carAngle += this.yawRate * dt;
 
@@ -330,10 +193,7 @@ class Car {
 		}
 	}
 
-	move(n) {
-		
-		this.getInput(n);
-		this.calculateSteering(n);
+	move() {
 		this.applyPhysics();
 		this.collisionDetection();
 	}
@@ -436,53 +296,9 @@ class Car {
 		ctx.restore();
 	}
 
-	drawPhysics() {
-		// Physics Simulation Display
-
-		ctx.save();
-		ctx.translate(this.pos.x, this.pos.y);
-		ctx.rotate(this.carAngle);
-
-		// Back wheel
-		ctx.fillStyle = "lime";
-		ctx.lineWidth = 2;
-		ctx.fillRect(this.wheels.back.x - this.wheels.size/2, this.wheels.back.y - this.wheels.thickness/2, this.wheels.size, this.wheels.thickness);
-
-		// Front wheel
-		ctx.save();
-		ctx.translate(this.wheels.front.x, this.wheels.front.y);
-		ctx.rotate(this.steeringAngle);
-
-		var wheel = new Vector(-this.wheels.size/2, -this.wheels.thickness/2);
-		ctx.fillRect(wheel.x, wheel.y, this.wheels.size, this.wheels.thickness);
-		ctx.restore();
-
-		// Axle
-		drawLine(this.wheels.back.x, this.wheels.back.y, this.wheels.front.x, this.wheels.front.y, 2, "lime");
-
-		// Car position
-
-		drawCircle(0, 0, 5, 1, "black");
-
-		ctx.restore(); // RESTORE BACK TO WORLD SPACE
-		ctx.save();
-		ctx.translate(this.pos.x, this.pos.y);
-
-		// Draw velocity
-
-		let v = this.velocity.copy()
-		v.mult(2);
-		drawArrow(0, 0, v.x, v.y, 3, "green");
-
-		ctx.restore();
-	}
-
 	draw() {
 		this.drawParticles();
 
 		this.drawCar();
-
-		if (showStats)
-			this.drawPhysics();
 	}
 }

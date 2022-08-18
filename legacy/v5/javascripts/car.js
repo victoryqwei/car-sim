@@ -1,12 +1,10 @@
 class Car {
-	constructor(x, y) {
+	constructor() {
 		// State of Car
-
-		this.id = randomString(5)
 
 		this.previousCarAngle = 0;
 		this.carAngle = 0; // Car body angle (radians)
-		this.pos = new Vector(x || 100, y || canvas.height/2+40); // Position
+		this.pos = new Vector(100, canvas.height/2+1); // Position
 		this.previousPosition = this.pos.copy();
 		this.velocity = new Vector(); // Velocity
 		this.localVelocity = new Vector();
@@ -146,7 +144,7 @@ class Car {
 
 
 
-	getInput(n) {
+	getInput() {
 		// Convert user input to car actions
 
 		var ctrl = this.controls;
@@ -168,19 +166,19 @@ class Car {
 			else
 				this.eBrake = 0;
 		} else {
-			if ((n == 1 && map[38]) || (n == 0 && map[87])) {
+			if (map[38] || map[87]) {
 				this.throttle = 1;
 			} else {
 				this.throttle = 0;
 			}
 
-			if ((n == 1 && map[40]) || (n == 0 && map[83])) {
+			if (map[40] || map[83]) {
 				this.brake = 1;
 			} else {
 				this.brake = 0;
 			}
 
-			if ((n == 0 && map[32]) || (n == 1 && map[18])) {
+			if (map[32]) {
 				this.eBrake = 1;
 			} else {
 				this.eBrake = 0;
@@ -189,7 +187,7 @@ class Car {
 		
 	}
 
-	calculateSteering(n) {
+	calculateSteering() {
 		// Steering
 
 		var ctrl = this.controls;
@@ -202,9 +200,9 @@ class Car {
 			else if (mouse.x > ctrl.steerRightPosition)
 				this.steeringAngle = ((mouse.x-ctrl.steerRightPosition)/ctrl.steerLeftPosition)*this.maxSteer;
 		} else if (smoothSteer) {
-			if (((n == 1 && map[37]) || (n == 0 && map[65])) && this.steeringAngle > -0.5) {
+			if ((map[37] || map[65]) && this.steeringAngle > -0.5) {
 				this.steeringAngle -= 0.02;
-			} else if (((n == 1 && map[39]) || (n == 0 && map[68])) && this.steeringAngle < 0.5) {
+			} else if ((map[39] || map[68]) && this.steeringAngle < 0.5) {
 				this.steeringAngle += 0.02;
 			} else if (this.steeringAngle < -0.02) {
 				this.steeringAngle += 0.02;
@@ -244,9 +242,8 @@ class Car {
 		this.sideslipAngle = (this.carAngle%rad(360) - this.velocity.getDir())%rad(360);
 
 		// Calculate slip angle for front/back wheel
-		let steeringAngle = this.color == "red" ? this.steeringAngle/3 : this.steeringAngle;
-		this.wheels.front.slipAngle = Math.atan2(this.localVelocity.y + yawSpeedFront, Math.abs(this.localVelocity.x)) - Math.sign(this.localVelocity.x) * steeringAngle;
-		this.wheels.back.slipAngle = Math.atan2(this.localVelocity.	y + yawSpeedRear,  Math.abs(this.localVelocity.x));
+		this.wheels.front.slipAngle = Math.atan2(this.localVelocity.y + yawSpeedFront, Math.abs(this.localVelocity.x)) - Math.sign(this.localVelocity.x) * this.steeringAngle;
+		this.wheels.back.slipAngle = Math.atan2(this.localVelocity.y + yawSpeedRear,  Math.abs(this.localVelocity.x));
 		//console.log(this.wheels.front.slipAngle, this.wheels.back.slipAngle);
 		
 		var tireGripFront = this.tireGrip;
@@ -274,7 +271,7 @@ class Car {
 		netForce.add(rollingResistanceForce);
 
 		// Add cornering force as well
-		this.corneringForce = Math.cos(steeringAngle) * frictionForceFront + frictionForceRear;
+		this.corneringForce = Math.cos(this.steeringAngle) * frictionForceFront + frictionForceRear;
 		netForce.y += this.corneringForce;
 
 		// Compute acceleration
@@ -304,7 +301,7 @@ class Car {
 		}
 
 		// Calculate car angle from angular torque
-		this.inertia = this.mass/12*(Math.pow(this.cgToFront + this.cgToRear, 2) + Math.pow(this.halfWidth*2, 2));
+		this.inertia = 1/12*this.mass*(Math.pow(this.cgToFront + this.cgToRear, 2) + Math.pow(this.halfWidth*2, 2));
 
 		let angularAcceleration = angularTorque / this.inertia;
 		this.yawRate += angularAcceleration * dt;
@@ -330,10 +327,10 @@ class Car {
 		}
 	}
 
-	move(n) {
+	move() {
 		
-		this.getInput(n);
-		this.calculateSteering(n);
+		this.getInput();
+		this.calculateSteering();
 		this.applyPhysics();
 		this.collisionDetection();
 	}
@@ -472,7 +469,7 @@ class Car {
 
 		let v = this.velocity.copy()
 		v.mult(2);
-		drawArrow(0, 0, v.x, v.y, 3, "green");
+		drawArrow(0, 0, v.x, v.y);
 
 		ctx.restore();
 	}
